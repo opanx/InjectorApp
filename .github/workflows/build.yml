@@ -40,19 +40,27 @@ jobs:
 
       - name: Sign APK
         run: |
+          export ANDROID_HOME=$ANDROID_HOME
+          export BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          echo "Using build-tools: $BUILD_TOOLS"
+          
           keytool -genkey -v -keystore /tmp/debug.keystore \
             -alias androiddebugkey -keyalg RSA -keysize 2048 \
             -validity 10000 -storepass android -keypass android \
             -dname "CN=Panxcz,O=Freebuff,C=ID"
-          zipalign -p 4 app/build/outputs/apk/release/app-release-unsigned.apk /tmp/aligned.apk
-          apksigner sign --ks /tmp/debug.keystore \
+          
+          $BUILD_TOOLS/zipalign -p 4 app/build/outputs/apk/release/app-release-unsigned.apk /tmp/aligned.apk
+          
+          $BUILD_TOOLS/apksigner sign --ks /tmp/debug.keystore \
             --ks-pass pass:android --key-pass pass:android \
             --ks-key-alias androiddebugkey \
             --out app/build/outputs/apk/release/panxcz-injector.apk \
             /tmp/aligned.apk
 
       - name: Verify APK
-        run: apksigner verify --verbose app/build/outputs/apk/release/panxcz-injector.apk
+        run: |
+          export BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          $BUILD_TOOLS/apksigner verify --verbose app/build/outputs/apk/release/panxcz-injector.apk
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2

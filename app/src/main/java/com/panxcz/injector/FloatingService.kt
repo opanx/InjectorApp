@@ -16,6 +16,7 @@ import android.view.*
 import android.widget.*
 import java.io.BufferedReader
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 
 class FloatingService : Service() {
@@ -79,16 +80,32 @@ class FloatingService : Service() {
     }
 
     /**
-     * Batch scan: ONE su shell gets all PIDs + cmdlines.
-     * Matches cmdline against installed packages from PackageManager.
+     * Build a shell script that scans /proc for running processes.
+     * Uses StringBuilder with explicit '$' chars to avoid Kotlin string interpolation.
      */
+    private fun buildScanScript(): String {
+        val DOLLAR = '$'
+        val script = StringBuilder()
+        script.appendLine("#!/system/bin/sh")
+        script.appendLine("for d in /proc/[0-9]*; do")
+        script.appendLine("    p=$(basename ${DOLLAR}d)")
+        script.appendLine("    cmd=$(cat ${DOLLAR}d/cmdline 2>/dev/null | tr '\\0' ' ' | head -c 200)")
+        script.appendLine("    if [ -n ${DOLLAR}cmd ]; then")
+        script.appendLine("        echo ${DOLLAR}p${DOLLAR}cmd")
+        script.appendLine("    fi")
+        script.appendLine("done")
+
+        val scriptFile = File(cacheDir, "scan.sh")
+        scriptFile.writeText(script.toString())
+        return scriptFile.absolutePath
+    }
+
     private fun showProcessList() {
         if (isShowingDialog) return
         isShowingDialog = true
         Thread {
             val procs = mutableListOf<Pair<Int, String>>()
 
-            // Get all installed packages
             val installedPkgs = mutableSetOf<String>()
             try {
                 val pm = packageManager
@@ -102,19 +119,9 @@ class FloatingService : Service() {
                 }
             } catch (_: Exception) {}
 
-            // Single su batch scan — use $$ to escape Kotlin $ interpolation in shell vars
             try {
-                val shellScript = """
-                    for pid_dir in /proc/[0-9]*; do
-                        p=$(basename "$$pid_dir")
-                        cmd=$(cat "$$pid_dir/cmdline" 2>/dev/null | tr '\0' ' ' | head -c 200)
-                        if [ -n "$$cmd" ]; then
-                            echo "$$p|$$cmd"
-                        fi
-                    done
-                """.trimIndent()
-
-                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", shellScript))
+                val scriptPath = buildScanScript()
+                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", "sh $scriptPath"))
                 val reader = BufferedReader(InputStreamReader(proc.inputStream))
                 reader.useLines { lines ->
                     for (line in lines) {
@@ -139,8 +146,8 @@ class FloatingService : Service() {
                     }
                 }
                 proc.waitFor()
+                File(scriptPath).delete()
             } catch (_: Exception) {
-                // Fallback without root
                 File("/proc").listFiles()?.forEach { dir ->
                     val n = dir.name; if (!n.all { it.isDigit() }) return@forEach
                     val pid = n.toIntOrNull() ?: return@forEach; if (pid <= 0 || pid == android.os.Process.myPid()) return@forEach
@@ -185,17 +192,24 @@ class FloatingService : Service() {
             try {
                 val libAsset = try { assets.open("libTool.so") } catch (_: Exception) { null }
                 if (libAsset != null) {
-                    val f = File("/data/local/tmp/libTool.so"); f.outputStream().use { o -> libAsset.use { it.copyTo(o) } }
+                    val f = File("/data/local/tmp/libTool.so")
+                    f.outputStream().use { o -> libAsset.use { it.copyTo(o) } }
                     Runtime.getRuntime().exec(arrayOf("su", "-c", "chmod 777 /data/local/tmp/libTool.so")).waitFor()
                 }
                 val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", "/data/local/tmp/panxcz_injector $pid /data/local/tmp/libTool.so"))
-                val out = proc.inputStream.bufferedReader().readText(); proc.waitFor()
+                val out = proc.inputStream.bufferedReader().readText()
+                proc.waitFor()
                 handler.post {
                     Toast.makeText(this, if (proc.exitValue() == 0) "Injected! Open $pkg for overlay" else "Failed: $out", Toast.LENGTH_LONG).show()
                 }
-            } catch (e: Exception) { handler.post { Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show() } }
+            } catch (e: Exception) {
+                handler.post { Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show() }
+            }
         }.start()
     }
 
-    override fun onDestroy() { super.onDestroy(); floatingView?.let { windowManager.removeView(it) } }
+    override fun onDestroy() {
+        super.onDestroy()
+        floatingView?.let { windowManager.removeView(it) }
+    }
 }

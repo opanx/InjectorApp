@@ -128,9 +128,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Detect running apps using BATCH su shell + PackageManager.
-     * This is fast — ONE su call instead of hundreds.
+     * Build shell script avoiding Kotlin $ interpolation.
+     * Uses a temporary file to pass the script to su.
      */
+    private fun buildScanScript(): String {
+        val DOLLAR = '$'
+        val script = StringBuilder()
+        script.appendLine("#!/system/bin/sh")
+        script.appendLine("for d in /proc/[0-9]*; do")
+        script.appendLine("    p=$(basename ${DOLLAR}d)")
+        script.appendLine("    cmd=$(cat ${DOLLAR}d/cmdline 2>/dev/null | tr '\\0' ' ' | head -c 200)")
+        script.appendLine("    if [ -n ${DOLLAR}cmd ]; then")
+        script.appendLine("        echo ${DOLLAR}p${DOLLAR}cmd")
+        script.appendLine("    fi")
+        script.appendLine("done")
+
+        val scriptFile = File(cacheDir, "scan.sh")
+        scriptFile.writeText(script.toString())
+        return scriptFile.absolutePath
+    }
+
     private fun refreshProcesses() {
         statusText.text = "Scanning processes..."
         Thread {
@@ -143,35 +160,21 @@ class MainActivity : AppCompatActivity() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
                     for (app in apps) {
-                        if (app.packageName.isNotEmpty()) {
-                            installedPkgs.add(app.packageName)
-                        }
+                        if (app.packageName.isNotEmpty()) installedPkgs.add(app.packageName)
                     }
                 } else {
                     @Suppress("DEPRECATION")
                     val apps = pm.getInstalledApplications(0)
                     for (app in apps) {
-                        if (app.packageName.isNotEmpty()) {
-                            installedPkgs.add(app.packageName)
-                        }
+                        if (app.packageName.isNotEmpty()) installedPkgs.add(app.packageName)
                     }
                 }
             } catch (_: Exception) {}
 
-            // Step 2: Single su shell — get ALL PIDs + cmdlines at once
-            // Use raw string (triple quotes) so $ are not interpolated by Kotlin
+            // Step 2: Use a shell script file to avoid Kotlin $ escaping issues
             try {
-                val shellScript = """
-                    for pid_dir in /proc/[0-9]*; do
-                        p=$(basename "$$pid_dir")
-                        cmd=$(cat "$$pid_dir/cmdline" 2>/dev/null | tr '\0' ' ' | head -c 200)
-                        if [ -n "$$cmd" ]; then
-                            echo "$$p|$$cmd"
-                        fi
-                    done
-                """.trimIndent()
-
-                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", shellScript))
+                val scriptPath = buildScanScript()
+                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", "sh $scriptPath"))
                 val reader = BufferedReader(InputStreamReader(proc.inputStream))
                 reader.useLines { lines ->
                     for (line in lines) {
@@ -184,7 +187,6 @@ class MainActivity : AppCompatActivity() {
                         val pid = pidStr.toIntOrNull() ?: continue
                         if (pid <= 0 || pid == android.os.Process.myPid()) continue
 
-                        // Try to match cmdline to installed package
                         var pkgName = ""
                         for (pkg in installedPkgs) {
                             if (cmdline.contains(pkg)) {
@@ -192,17 +194,15 @@ class MainActivity : AppCompatActivity() {
                                 break
                             }
                         }
-
-                        // Fallback: use cmdline itself as name
                         if (pkgName.isEmpty()) {
                             if (cmdline.startsWith("/system/") || cmdline.startsWith("[")) continue
                             pkgName = cmdline.substring(0, minOf(cmdline.length, 60))
                         }
-
                         procs.add(ProcessInfo(pid, pkgName, cmdline))
                     }
                 }
                 proc.waitFor()
+                scriptFile(cacheDir, "scan.sh").delete()
             } catch (e: Exception) {
                 // Fallback: scan /proc without root
                 File("/proc").listFiles()?.forEach { dir ->

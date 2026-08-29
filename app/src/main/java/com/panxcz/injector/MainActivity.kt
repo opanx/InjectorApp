@@ -100,25 +100,41 @@ class MainActivity : AppCompatActivity() {
 
     private fun extractBinaries() {
         Thread {
+            var msgs = mutableListOf<String>()
             try {
-                // Extract injector from assets (if present)
+                // 1) Extract injector from assets (built by CMake as executable)
                 try {
                     assets.open("injector").use { input ->
                         FileOutputStream(File(injectorPath)).use { output -> input.copyTo(output) }
                     }
-                } catch (_: Exception) {}
+                    msgs.add("injector: OK")
+                } catch (_: Exception) {
+                    msgs.add("injector: not in assets")
+                }
 
-                // Copy libTool.so from assets
+                // 2) Copy libTool.so from assets
                 try {
                     assets.open("libTool.so").use { input ->
                         FileOutputStream(File(soPath)).use { output -> input.copyTo(output) }
                     }
+                    msgs.add("libTool.so: OK")
+                } catch (_: Exception) {
+                    msgs.add("libTool.so: not in assets")
+                }
+
+                // 3) chmod via su
+                try {
+                    Runtime.getRuntime().exec(arrayOf("su", "-c", "chmod 777 $injectorPath $soPath")).waitFor()
                 } catch (_: Exception) {}
 
-                Runtime.getRuntime().exec(arrayOf("su", "-c", "chmod 777 $injectorPath $soPath")).waitFor()
-                runOnUiThread { statusText.text = "Binaries ready. Tap Refresh to scan." }
+                val inj = File(injectorPath)
+                val injOk = inj.exists() && inj.length() > 0
+                runOnUiThread {
+                    statusText.text = if (injOk) "Binaries ready (${msgs.joinToString()}). Tap Refresh."
+                    else "Warning: ${msgs.joinToString()}. Injector not found."
+                }
             } catch (e: Exception) {
-                runOnUiThread { statusText.text = "Error: ${e.message}" }
+                runOnUiThread { statusText.text = "Extract error: ${e.message}" }
             }
         }.start()
     }
@@ -200,7 +216,11 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             return
         }
-        startService(Intent(this, FloatingService::class.java))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(Intent(this, FloatingService::class.java))
+        } else {
+            startService(Intent(this, FloatingService::class.java))
+        }
         statusText.text = "Floating icon active! Open a game, tap the icon to inject."
     }
 }

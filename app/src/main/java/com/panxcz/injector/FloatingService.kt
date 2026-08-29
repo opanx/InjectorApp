@@ -1,6 +1,9 @@
 package com.panxcz.injector
 
 import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -19,13 +22,30 @@ class FloatingService : Service() {
     private lateinit var windowManager: WindowManager
     private val handler = Handler(Looper.getMainLooper())
     private var floatingView: View? = null
+    private var isShowingDialog = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        startForegroundIfNeeded()
         createFloatingIcon()
+    }
+
+    private fun startForegroundIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel("panxcz_overlay", "Panxcz Overlay", NotificationManager.IMPORTANCE_LOW)
+            channel.description = "Floating overlay service"
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(channel)
+        }
+        val notification = Notification.Builder(this, "panxcz_overlay")
+            .setSmallIcon(android.R.drawable.ic_menu_info_details)
+            .setContentTitle("Panxcz Injector")
+            .setContentText("Floating overlay active")
+            .build()
+        startForeground(1, notification)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -58,6 +78,8 @@ class FloatingService : Service() {
     }
 
     private fun showProcessList() {
+        if (isShowingDialog) return
+        isShowingDialog = true
         Thread {
             val procs = mutableListOf<Pair<Int, String>>()
             File("/proc").listFiles()?.forEach { dir ->
@@ -69,11 +91,17 @@ class FloatingService : Service() {
             }
             procs.sortBy { it.second }
             handler.post {
+                if (procs.isEmpty()) {
+                    isShowingDialog = false
+                    Toast.makeText(this, "No game processes found", Toast.LENGTH_SHORT).show()
+                    return@post
+                }
                 val items = procs.map { "PID ${it.first} - ${it.second}" }.toTypedArray()
                 val builder = android.app.AlertDialog.Builder(this, R.style.ElainaDialog)
                     .setTitle("Select Game")
                     .setItems(items) { _, w -> injectProcess(procs[w].first, procs[w].second) }
-                    .setNegativeButton("Cancel", null)
+                    .setNegativeButton("Cancel") { _, _ -> isShowingDialog = false }
+                    .setOnDismissListener { isShowingDialog = false }
                 builder.create().show()
             }
         }.start()

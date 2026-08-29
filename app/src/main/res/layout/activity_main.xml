@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="#FF1A1A2E">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="🎮 Panxcz Injector v1.0"
+        android:textSize="24sp"
+        android:textColor="#FF00FF88"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingBottom="4dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="By Panxcz &amp; Freebuff"
+        android:textSize="12sp"
+        android:textColor="#FF888888"
+        android:gravity="center"
+        android:paddingBottom="12dp" />
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Ready"
+        android:textSize="14sp"
+        android:textColor="#FFFFFFFF"
+        android:background="#FF2D2D44"
+        android:padding="12dp"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <Button
+            android:id="@+id/refreshBtn"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="🔄 Refresh"
+            android:textColor="#FFFFFFFF"
+            android:backgroundTint="#FF444488"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/injectBtn"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="💉 Inject"
+            android:textColor="#FFFFFFFF"
+            android:backgroundTint="#FF00AA44"
+            android:enabled="false"
+            android:layout_marginStart="4dp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Running Processes:"
+        android:textSize="14sp"
+        android:textColor="#FFAAAAAA"
+        android:paddingBottom="4dp" />
+
+    <ListView
+        android:id="@+id/processList"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#FF2D2D44"
+        android:divider="#FF444466"
+        android:dividerHeight="1dp"
+        android:choiceMode="singleChoice" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⚠️ Requires root. Select game → Inject → Menu in-game."
+        android:textSize="11sp"
+        android:textColor="#FF886644"
+        android:gravity="center"
+        android:paddingTop="8dp" />
+
+</LinearLayout>

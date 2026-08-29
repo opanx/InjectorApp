@@ -128,7 +128,7 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 val process = Runtime.getRuntime().exec(
-                    arrayOf("su", "-c", "/data/local/tmp/panxcz_injector $pid $so_path"))
+                    arrayOf("su", "-c", "/data/local/tmp/panxcz_injector $pid $soPath"))
                 val output = process.inputStream.bufferedReader().readText()
                 val errors = process.errorStream.bufferedReader().readText()
                 process.waitFor()

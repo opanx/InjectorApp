@@ -11,30 +11,58 @@
         android:layout_height="wrap_content"
         android:text="Panxcz Injector v1.0"
         android:textSize="24sp"
-        android:textColor="#FF00FF88"
+        android:textColor="#FFBB8FCE"
         android:textStyle="bold"
         android:gravity="center"
-        android:paddingBottom="4dp" />
+        android:paddingBottom="2dp" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="By Panxcz &amp; Freebuff"
-        android:textSize="12sp"
-        android:textColor="#FF888888"
+        android:text="By Panxcz &amp; Freebuff | Elaina Theme"
+        android:textSize="11sp"
+        android:textColor="#FF9B59B6"
         android:gravity="center"
-        android:paddingBottom="12dp" />
+        android:paddingBottom="8dp" />
 
     <TextView
         android:id="@+id/statusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Ready"
-        android:textSize="14sp"
+        android:textSize="13sp"
         android:textColor="#FFFFFFFF"
-        android:background="#FF2D2D44"
-        android:padding="12dp"
+        android:background="#FF16213E"
+        android:padding="10dp"
         android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="6dp">
+
+        <Button
+            android:id="@+id/refreshBtn"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:text="Refresh"
+            android:textSize="12sp"
+            android:textColor="#FFFFFFFF"
+            android:layout_marginEnd="3dp" />
+
+        <Button
+            android:id="@+id/injectBtn"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:text="Inject"
+            android:textSize="12sp"
+            android:textColor="#FFFFFFFF"
+            android:enabled="false"
+            android:layout_marginStart="3dp" />
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -43,25 +71,24 @@
         android:layout_marginBottom="8dp">
 
         <Button
-            android:id="@+id/refreshBtn"
+            android:id="@+id/floatingBtn"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="42dp"
             android:layout_weight="1"
-            android:text="Refresh"
+            android:text="Floating Icon"
+            android:textSize="12sp"
             android:textColor="#FFFFFFFF"
-            android:backgroundTint="#FF444488"
-            android:layout_marginEnd="4dp" />
+            android:layout_marginEnd="3dp" />
 
         <Button
-            android:id="@+id/injectBtn"
+            android:id="@+id/menuBtn"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="42dp"
             android:layout_weight="1"
-            android:text="Inject"
+            android:text="Tool Menu"
+            android:textSize="12sp"
             android:textColor="#FFFFFFFF"
-            android:backgroundTint="#FF00AA44"
-            android:enabled="false"
-            android:layout_marginStart="4dp" />
+            android:layout_marginStart="3dp" />
     </LinearLayout>
 
     <ListView
@@ -69,18 +96,18 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="#FF2D2D44"
-        android:divider="#FF444466"
+        android:background="#FF16213E"
+        android:divider="#FF9B59B6"
         android:dividerHeight="1dp"
         android:choiceMode="singleChoice" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Requires root. Select game, then Inject."
-        android:textSize="11sp"
-        android:textColor="#FF886644"
+        android:text="Root required. Select game, Inject, then use floating icon for tools."
+        android:textSize="10sp"
+        android:textColor="#FF9B59B6"
         android:gravity="center"
-        android:paddingTop="8dp" />
+        android:paddingTop="6dp" />
 
 </LinearLayout>

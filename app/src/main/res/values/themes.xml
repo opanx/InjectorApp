@@ -2,7 +2,16 @@
 <resources>
     <style name="Theme.PanxczInjector" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">#FF1A1A2E</item>
-        <item name="android:statusBarColor">#FF0F0F1E</item>
-        <item name="android:navigationBarColor">#FF0F0F1E</item>
+        <item name="android:statusBarColor">#FF16213E</item>
+        <item name="android:navigationBarColor">#FF16213E</item>
+        <item name="android:colorPrimary">#FF9B59B6</item>
+        <item name="android:colorAccent">#FFBB8FCE</item>
+    </style>
+
+    <style name="ElainaDialog" parent="android:Theme.Material.Light.Dialog.Alert">
+        <item name="android:windowBackground">#FF1A1A2E</item>
+        <item name="android:textColorPrimary">#FFFFFFFF</item>
+        <item name="android:textColorSecondary">#FFBB8FCE</item>
+        <item name="android:colorAccent">#FF9B59B6</item>
     </style>
 </resources>

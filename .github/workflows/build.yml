@@ -32,6 +32,12 @@ jobs:
           gradle-version: '8.5'
           cache-read-only: true
 
+      - name: Download libTool.so from Android-LibTool-New release
+        run: |
+          mkdir -p app/src/main/assets
+          curl -L -o app/src/main/assets/libTool.so "https://github.com/opanx/Android-LibTool-New/releases/download/v4.0/libTool.so" || echo "WARN: Could not download libTool.so"
+          ls -la app/src/main/assets/ 2>/dev/null || true
+
       - name: Build Release APK
         run: gradle assembleRelease
 

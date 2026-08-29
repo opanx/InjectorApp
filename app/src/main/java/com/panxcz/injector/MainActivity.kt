@@ -159,14 +159,19 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {}
 
             // Step 2: Single su shell — get ALL PIDs + cmdlines at once
+            // Use raw string (triple quotes) so $ are not interpolated by Kotlin
             try {
-                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c",
-                    "for pid in /proc/[0-9]*; do " +
-                    "p=$(basename $pid); " +
-                    "cmd=$(cat $pid/cmdline 2>/dev/null | tr '\\0' ' ' | head -c 200); " +
-                    "if [ -n \"$cmd\" ]; then echo \"$p|$cmd\"; fi; " +
-                    "done"
-                ))
+                val shellScript = """
+                    for pid_dir in /proc/[0-9]*; do
+                        p=$(basename "$$pid_dir")
+                        cmd=$(cat "$$pid_dir/cmdline" 2>/dev/null | tr '\0' ' ' | head -c 200)
+                        if [ -n "$$cmd" ]; then
+                            echo "$$p|$$cmd"
+                        fi
+                    done
+                """.trimIndent()
+
+                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", shellScript))
                 val reader = BufferedReader(InputStreamReader(proc.inputStream))
                 reader.useLines { lines ->
                     for (line in lines) {
@@ -190,9 +195,7 @@ class MainActivity : AppCompatActivity() {
 
                         // Fallback: use cmdline itself as name
                         if (pkgName.isEmpty()) {
-                            // Skip system processes
                             if (cmdline.startsWith("/system/") || cmdline.startsWith("[")) continue
-                            // Use first 60 chars of cmdline
                             pkgName = cmdline.substring(0, minOf(cmdline.length, 60))
                         }
 
@@ -226,7 +229,6 @@ class MainActivity : AppCompatActivity() {
 
             runOnUiThread {
                 processes.clear()
-                // Sort: known packages first, then by name
                 procs.sortWith(compareBy<ProcessInfo> {
                     if (it.packageName.contains('.')) 0 else 1
                 }.thenBy { it.packageName })

@@ -102,15 +102,19 @@ class FloatingService : Service() {
                 }
             } catch (_: Exception) {}
 
-            // Single su batch scan
+            // Single su batch scan — use $$ to escape Kotlin $ interpolation in shell vars
             try {
-                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c",
-                    "for pid in /proc/[0-9]*; do " +
-                    "p=$(basename $pid); " +
-                    "cmd=$(cat $pid/cmdline 2>/dev/null | tr '\\0' ' ' | head -c 200); " +
-                    "if [ -n \"$cmd\" ]; then echo \"$p|$cmd\"; fi; " +
-                    "done"
-                ))
+                val shellScript = """
+                    for pid_dir in /proc/[0-9]*; do
+                        p=$(basename "$$pid_dir")
+                        cmd=$(cat "$$pid_dir/cmdline" 2>/dev/null | tr '\0' ' ' | head -c 200)
+                        if [ -n "$$cmd" ]; then
+                            echo "$$p|$$cmd"
+                        fi
+                    done
+                """.trimIndent()
+
+                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", shellScript))
                 val reader = BufferedReader(InputStreamReader(proc.inputStream))
                 reader.useLines { lines ->
                     for (line in lines) {

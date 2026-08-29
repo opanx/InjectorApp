@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.PanxczInjector" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">#FF00FF88</item>
-        <item name="colorPrimaryVariant">#FF00CC66</item>
-        <item name="colorOnPrimary">#FFFFFFFF</item>
-        <item name="colorSecondary">#FF4488FF</item>
+    <style name="Theme.PanxczInjector" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">#FF1A1A2E</item>
         <item name="android:statusBarColor">#FF0F0F1E</item>
         <item name="android:navigationBarColor">#FF0F0F1E</item>

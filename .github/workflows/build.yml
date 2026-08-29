@@ -1,0 +1,39 @@
+name: Build Injector APK
+on:
+  push: { branches: [main] }
+  workflow_dispatch:
+permissions: { contents: write }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with: { java-version: '17', distribution: 'temurin' }
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "ndk;25.2.9519653"
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.5', cache-read-only: true }
+      - name: Download libTool.so
+        run: |
+          mkdir -p app/src/main/assets
+          curl -L -o app/src/main/assets/libTool.so "https://github.com/opanx/Android-LibTool-New/releases/download/v4.0/libTool.so" 2>/dev/null || true
+          ls -la app/src/main/assets/
+      - run: gradle assembleRelease
+      - name: Get version
+        id: v
+        run: echo "version=$(grep 'versionName' app/build.gradle | head -1 | sed 's/.*"\(.*\)".*/\1/')" >> $GITHUB_OUTPUT
+      - name: Sign APK
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          keytool -genkey -v -keystore /tmp/ks -alias k -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=P"
+          $BT/zipalign -p 4 app/build/outputs/apk/release/app-release-unsigned.apk /tmp/a.apk
+          $BT/apksigner sign --ks /tmp/ks --ks-pass pass:android --key-pass pass:android --ks-key-alias k --out app/build/outputs/apk/release/panxcz-injector.apk /tmp/a.apk
+      - name: Verify
+        run: $(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)/apksigner verify app/build/outputs/apk/release/panxcz-injector.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.v.outputs.version }}
+          name: "Panxcz Injector v${{ steps.v.outputs.version }}"
+          files: app/build/outputs/apk/release/panxcz-injector.apk
+        env: { GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }

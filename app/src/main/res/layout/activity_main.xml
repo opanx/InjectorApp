@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="16dp" android:background="#FF1A1A2E">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Panxcz Injector" android:textSize="22sp" android:textColor="#FFBB8FCE"
+        android:textStyle="bold" android:gravity="center" android:paddingBottom="2dp"/>
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="By Panxcz &amp; Freebuff" android:textSize="11sp" android:textColor="#FF9B59B6"
+        android:gravity="center" android:paddingBottom="8dp"/>
+    <TextView android:id="@+id/statusText" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:text="Ready" android:textSize="13sp"
+        android:textColor="#FFFFFFFF" android:background="#FF16213E" android:padding="10dp"
+        android:layout_marginBottom="8dp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:layout_marginBottom="6dp">
+        <Button android:id="@+id/refreshBtn" android:layout_width="0dp" android:layout_height="42dp"
+            android:layout_weight="1" android:text="Refresh" android:textSize="12sp"
+            android:textColor="#FFFFFFFF" android:layout_marginEnd="3dp"/>
+        <Button android:id="@+id/injectBtn" android:layout_width="0dp" android:layout_height="42dp"
+            android:layout_weight="1" android:text="Inject" android:textSize="12sp"
+            android:textColor="#FFFFFFFF" android:enabled="false" android:layout_marginStart="3dp"/>
+    </LinearLayout>
+    <Button android:id="@+id/overlayBtn" android:layout_width="match_parent"
+        android:layout_height="42dp" android:text="Start Floating Overlay"
+        android:textSize="12sp" android:textColor="#FFFFFFFF" android:layout_marginBottom="8dp"/>
+    <ListView android:id="@+id/processList" android:layout_width="match_parent"
+        android:layout_height="0dp" android:layout_weight="1" android:background="#FF16213E"
+        android:divider="#FF9B59B6" android:dividerHeight="1dp" android:choiceMode="singleChoice"/>
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Root required. Floating overlay injects libTool.so into game."
+        android:textSize="10sp" android:textColor="#FF9B59B6" android:gravity="center"
+        android:paddingTop="6dp"/>
+</LinearLayout>

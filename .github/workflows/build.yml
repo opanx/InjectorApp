@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -40,34 +43,23 @@ jobs:
 
       - name: Sign APK
         run: |
-          export ANDROID_HOME=$ANDROID_HOME
-          export BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
-          echo "Using build-tools: $BUILD_TOOLS"
-          
-          keytool -genkey -v -keystore /tmp/debug.keystore \
-            -alias androiddebugkey -keyalg RSA -keysize 2048 \
-            -validity 10000 -storepass android -keypass android \
-            -dname "CN=Panxcz,O=Freebuff,C=ID"
-          
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          keytool -genkey -v -keystore /tmp/debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Panxcz,O=Freebuff,C=ID"
           $BUILD_TOOLS/zipalign -p 4 app/build/outputs/apk/release/app-release-unsigned.apk /tmp/aligned.apk
-          
-          $BUILD_TOOLS/apksigner sign --ks /tmp/debug.keystore \
-            --ks-pass pass:android --key-pass pass:android \
-            --ks-key-alias androiddebugkey \
-            --out app/build/outputs/apk/release/panxcz-injector.apk \
-            /tmp/aligned.apk
+          $BUILD_TOOLS/apksigner sign --ks /tmp/debug.keystore --ks-pass pass:android --key-pass pass:android --ks-key-alias androiddebugkey --out app/build/outputs/apk/release/panxcz-injector.apk /tmp/aligned.apk
 
       - name: Verify APK
         run: |
-          export BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
           $BUILD_TOOLS/apksigner verify --verbose app/build/outputs/apk/release/panxcz-injector.apk
 
-      - name: Upload to Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: "Panxcz Injector v${{ steps.version.outputs.version }}"
           files: app/build/outputs/apk/release/panxcz-injector.apk
-          generate_release_notes: true
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -6,6 +6,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -77,26 +78,93 @@ class FloatingService : Service() {
         windowManager.addView(floatingView, params)
     }
 
+    /**
+     * Batch scan: ONE su shell gets all PIDs + cmdlines.
+     * Matches cmdline against installed packages from PackageManager.
+     */
     private fun showProcessList() {
         if (isShowingDialog) return
         isShowingDialog = true
         Thread {
             val procs = mutableListOf<Pair<Int, String>>()
-            File("/proc").listFiles()?.forEach { dir ->
-                val n = dir.name; if (!n.all { it.isDigit() }) return@forEach
-                val pid = n.toIntOrNull() ?: return@forEach; if (pid <= 0) return@forEach
-                val cmd = try { File("/proc/$pid/cmdline").readText().trim('\u0000') } catch (_: Exception) { return@forEach }
-                if (cmd.isEmpty()) return@forEach
-                val pkg = getPackageName(pid); if (pkg.isNotEmpty()) procs.add(pid to pkg)
+
+            // Get all installed packages
+            val installedPkgs = mutableSetOf<String>()
+            try {
+                val pm = packageManager
+                val apps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                } else {
+                    @Suppress("DEPRECATION") pm.getInstalledApplications(0)
+                }
+                for (app in apps) {
+                    if (app.packageName.isNotEmpty()) installedPkgs.add(app.packageName)
+                }
+            } catch (_: Exception) {}
+
+            // Single su batch scan
+            try {
+                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c",
+                    "for pid in /proc/[0-9]*; do " +
+                    "p=$(basename $pid); " +
+                    "cmd=$(cat $pid/cmdline 2>/dev/null | tr '\\0' ' ' | head -c 200); " +
+                    "if [ -n \"$cmd\" ]; then echo \"$p|$cmd\"; fi; " +
+                    "done"
+                ))
+                val reader = BufferedReader(InputStreamReader(proc.inputStream))
+                reader.useLines { lines ->
+                    for (line in lines) {
+                        val trimmed = line.trim()
+                        if (trimmed.isEmpty()) continue
+                        val pipeIdx = trimmed.indexOf('|')
+                        if (pipeIdx < 0) continue
+                        val pidStr = trimmed.substring(0, pipeIdx)
+                        val cmdline = trimmed.substring(pipeIdx + 1).trim()
+                        val pid = pidStr.toIntOrNull() ?: continue
+                        if (pid <= 0 || pid == android.os.Process.myPid()) continue
+
+                        var pkgName = ""
+                        for (pkg in installedPkgs) {
+                            if (cmdline.contains(pkg)) { pkgName = pkg; break }
+                        }
+                        if (pkgName.isEmpty()) {
+                            if (cmdline.startsWith("/system/") || cmdline.startsWith("[")) continue
+                            pkgName = cmdline.substring(0, minOf(cmdline.length, 60))
+                        }
+                        procs.add(pid to pkgName)
+                    }
+                }
+                proc.waitFor()
+            } catch (_: Exception) {
+                // Fallback without root
+                File("/proc").listFiles()?.forEach { dir ->
+                    val n = dir.name; if (!n.all { it.isDigit() }) return@forEach
+                    val pid = n.toIntOrNull() ?: return@forEach; if (pid <= 0 || pid == android.os.Process.myPid()) return@forEach
+                    val cmd = try { File("/proc/$pid/cmdline").readText().trim('\u0000') } catch (_: Exception) { return@forEach }
+                    if (cmd.isEmpty()) return@forEach
+                    var pkgName = ""
+                    for (pkg in installedPkgs) {
+                        if (cmd.contains(pkg)) { pkgName = pkg; break }
+                    }
+                    if (pkgName.isEmpty()) {
+                        if (cmd.startsWith("/system/") || cmd.startsWith("[")) return@forEach
+                        pkgName = cmd.substring(0, minOf(cmd.length, 60))
+                    }
+                    procs.add(pid to pkgName)
+                }
             }
-            procs.sortBy { it.second }
+
+            procs.sortWith(compareBy<Pair<Int, String>> {
+                if (it.second.contains('.')) 0 else 1
+            }.thenBy { it.second })
+
             handler.post {
                 if (procs.isEmpty()) {
                     isShowingDialog = false
                     Toast.makeText(this, "No game processes found", Toast.LENGTH_SHORT).show()
                     return@post
                 }
-                val items = procs.map { "PID ${it.first} - ${it.second}" }.toTypedArray()
+                val items = procs.map { "PID ${it.first} — ${it.second}" }.toTypedArray()
                 val builder = android.app.AlertDialog.Builder(this, R.style.ElainaDialog)
                     .setTitle("Select Game")
                     .setItems(items) { _, w -> injectProcess(procs[w].first, procs[w].second) }
@@ -105,14 +173,6 @@ class FloatingService : Service() {
                 builder.create().show()
             }
         }.start()
-    }
-
-    private fun getPackageName(pid: Int): String {
-        return try {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /proc/$pid/maps"))
-            val r = BufferedReader(InputStreamReader(p.inputStream)); var pkg = ""
-            r.useLines { for (l in it) { val i = l.indexOf("/data/app/"); if (i >= 0) { val rest = l.substring(i+10); val d = rest.lastIndexOf('-'); if (d > 0) pkg = rest.substring(0,d); return@useLines } } }; p.waitFor(); pkg
-        } catch (_: Exception) { "" }
     }
 
     private fun injectProcess(pid: Int, pkg: String) {

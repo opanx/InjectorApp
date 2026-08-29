@@ -1,17 +1,14 @@
 package com.panxcz.injector
 
-import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.provider.Settings
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
@@ -25,7 +22,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var refreshBtn: Button
     private lateinit var overlayBtn: Button
 
-    private data class ProcessInfo(val pid: Int, val packageName: String)
+    private data class ProcessInfo(val pid: Int, val packageName: String, val cmdline: String)
     private var processes = mutableListOf<ProcessInfo>()
     private var selectedPid = -1
     private var soPath = "/data/local/tmp/libTool.so"
@@ -74,17 +71,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermissions() {
-        // Root check
         Thread {
             try {
                 val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
                 val output = p.inputStream.bufferedReader().readText()
                 p.waitFor()
                 runOnUiThread {
-                    if (p.exitValue() == 0 && output.contains("uid=0")) {
-                        statusText.text = "Root OK. Extracting binaries..."
+                    statusText.text = if (p.exitValue() == 0 && output.contains("uid=0")) {
+                        "Root OK. Extracting binaries..."
                     } else {
-                        statusText.text = "ROOT REQUIRED! Install Magisk/KSU first."
+                        "ROOT REQUIRED! Install Magisk/KSU first."
                     }
                 }
             } catch (_: Exception) {
@@ -92,7 +88,6 @@ class MainActivity : AppCompatActivity() {
             }
         }.start()
 
-        // Overlay permission
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
         }
@@ -102,27 +97,20 @@ class MainActivity : AppCompatActivity() {
         Thread {
             var msgs = mutableListOf<String>()
             try {
-                // 1) Extract injector from assets (built by CMake as executable)
                 try {
                     assets.open("injector").use { input ->
                         FileOutputStream(File(injectorPath)).use { output -> input.copyTo(output) }
                     }
                     msgs.add("injector: OK")
-                } catch (_: Exception) {
-                    msgs.add("injector: not in assets")
-                }
+                } catch (_: Exception) { msgs.add("injector: not in assets") }
 
-                // 2) Copy libTool.so from assets
                 try {
                     assets.open("libTool.so").use { input ->
                         FileOutputStream(File(soPath)).use { output -> input.copyTo(output) }
                     }
                     msgs.add("libTool.so: OK")
-                } catch (_: Exception) {
-                    msgs.add("libTool.so: not in assets")
-                }
+                } catch (_: Exception) { msgs.add("libTool.so: not in assets") }
 
-                // 3) chmod via su
                 try {
                     Runtime.getRuntime().exec(arrayOf("su", "-c", "chmod 777 $injectorPath $soPath")).waitFor()
                 } catch (_: Exception) {}
@@ -139,53 +127,120 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    /**
+     * Detect running apps using BATCH su shell + PackageManager.
+     * This is fast — ONE su call instead of hundreds.
+     */
     private fun refreshProcesses() {
         statusText.text = "Scanning processes..."
         Thread {
             val procs = mutableListOf<ProcessInfo>()
-            File("/proc").listFiles()?.forEach { dir ->
-                val name = dir.name
-                if (name.all { it.isDigit() }) {
+
+            // Step 1: Get all installed app packages from PackageManager
+            val installedPkgs = mutableSetOf<String>()
+            try {
+                val pm = packageManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                    for (app in apps) {
+                        if (app.packageName.isNotEmpty()) {
+                            installedPkgs.add(app.packageName)
+                        }
+                    }
+                } else {
+                    @Suppress("DEPRECATION")
+                    val apps = pm.getInstalledApplications(0)
+                    for (app in apps) {
+                        if (app.packageName.isNotEmpty()) {
+                            installedPkgs.add(app.packageName)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+            // Step 2: Single su shell — get ALL PIDs + cmdlines at once
+            try {
+                val proc = Runtime.getRuntime().exec(arrayOf("su", "-c",
+                    "for pid in /proc/[0-9]*; do " +
+                    "p=$(basename $pid); " +
+                    "cmd=$(cat $pid/cmdline 2>/dev/null | tr '\\0' ' ' | head -c 200); " +
+                    "if [ -n \"$cmd\" ]; then echo \"$p|$cmd\"; fi; " +
+                    "done"
+                ))
+                val reader = BufferedReader(InputStreamReader(proc.inputStream))
+                reader.useLines { lines ->
+                    for (line in lines) {
+                        val trimmed = line.trim()
+                        if (trimmed.isEmpty()) continue
+                        val pipeIdx = trimmed.indexOf('|')
+                        if (pipeIdx < 0) continue
+                        val pidStr = trimmed.substring(0, pipeIdx)
+                        val cmdline = trimmed.substring(pipeIdx + 1).trim()
+                        val pid = pidStr.toIntOrNull() ?: continue
+                        if (pid <= 0 || pid == android.os.Process.myPid()) continue
+
+                        // Try to match cmdline to installed package
+                        var pkgName = ""
+                        for (pkg in installedPkgs) {
+                            if (cmdline.contains(pkg)) {
+                                pkgName = pkg
+                                break
+                            }
+                        }
+
+                        // Fallback: use cmdline itself as name
+                        if (pkgName.isEmpty()) {
+                            // Skip system processes
+                            if (cmdline.startsWith("/system/") || cmdline.startsWith("[")) continue
+                            // Use first 60 chars of cmdline
+                            pkgName = cmdline.substring(0, minOf(cmdline.length, 60))
+                        }
+
+                        procs.add(ProcessInfo(pid, pkgName, cmdline))
+                    }
+                }
+                proc.waitFor()
+            } catch (e: Exception) {
+                // Fallback: scan /proc without root
+                File("/proc").listFiles()?.forEach { dir ->
+                    val name = dir.name
+                    if (!name.all { it.isDigit() }) return@forEach
                     val pid = name.toIntOrNull() ?: return@forEach
-                    if (pid <= 0) return@forEach
-                    val cmdline = try { File("/proc/$pid/cmdline").readText().trim('\u0000') } catch (_: Exception) { return@forEach }
+                    if (pid <= 0 || pid == android.os.Process.myPid()) return@forEach
+                    val cmdline = try {
+                        File("/proc/$pid/cmdline").readText().trim('\u0000')
+                    } catch (_: Exception) { return@forEach }
                     if (cmdline.isEmpty()) return@forEach
-                    val pkg = getPackageName(pid)
-                    if (pkg.isNotEmpty()) procs.add(ProcessInfo(pid, pkg))
+
+                    var pkgName = ""
+                    for (pkg in installedPkgs) {
+                        if (cmdline.contains(pkg)) { pkgName = pkg; break }
+                    }
+                    if (pkgName.isEmpty()) {
+                        if (cmdline.startsWith("/system/") || cmdline.startsWith("[")) return@forEach
+                        pkgName = cmdline.substring(0, minOf(cmdline.length, 60))
+                    }
+                    procs.add(ProcessInfo(pid, pkgName, cmdline))
                 }
             }
+
             runOnUiThread {
                 processes.clear()
-                procs.sortBy { it.packageName }
+                // Sort: known packages first, then by name
+                procs.sortWith(compareBy<ProcessInfo> {
+                    if (it.packageName.contains('.')) 0 else 1
+                }.thenBy { it.packageName })
                 processes.addAll(procs)
-                processList.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1,
-                    procs.map { "PID ${it.pid} - ${it.packageName}" })
-                statusText.text = "Found ${procs.size} apps. Select one to inject."
+                processList.adapter = ArrayAdapter(
+                    this,
+                    android.R.layout.simple_list_item_1,
+                    procs.map { "PID ${it.pid} — ${it.packageName}" }
+                )
+                statusText.text = "Found ${procs.size} processes. Select one to inject."
                 injectBtn.isEnabled = false
                 selectedPid = -1
             }
         }.start()
-    }
-
-    private fun getPackageName(pid: Int): String {
-        return try {
-            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat /proc/$pid/maps"))
-            val reader = BufferedReader(InputStreamReader(p.inputStream))
-            var pkg = ""
-            reader.useLines { lines ->
-                for (line in lines) {
-                    val idx = line.indexOf("/data/app/")
-                    if (idx >= 0) {
-                        val rest = line.substring(idx + 10)
-                        val dash = rest.lastIndexOf('-')
-                        if (dash > 0) pkg = rest.substring(0, dash)
-                        return@useLines
-                    }
-                }
-            }
-            p.waitFor()
-            pkg
-        } catch (_: Exception) { "" }
     }
 
     private fun injectToProcess(pid: Int) {

@@ -202,7 +202,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 proc.waitFor()
-                scriptFile(cacheDir, "scan.sh").delete()
+                File(scriptPath).delete()
             } catch (e: Exception) {
                 // Fallback: scan /proc without root
                 File("/proc").listFiles()?.forEach { dir ->

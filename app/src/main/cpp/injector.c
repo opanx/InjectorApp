@@ -1,6 +1,7 @@
 /*
- * Panxcz Injector v1.0 - Simple ptrace .so injector for Android ARM64
- * 
+ * Panxcz Injector v1.0 - Ptrace .so injector for Android ARM64
+ * Uses PTRACE_GETREGSET/SETREGSET (Android doesn't have GETREGS/SETREGS)
+ *
  * Usage: injector <pid> <path_to_so>
  * Requires root.
  */
@@ -11,11 +12,29 @@
 #include <errno.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <elf.h>
 #include <sys/ptrace.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
-#include <sys/user.h>
 #include <sys/mman.h>
 #include <dlfcn.h>
+
+struct pt_regs2 {
+    uint64_t regs[31];
+    uint64_t sp;
+    uint64_t pc;
+    uint64_t pstate;
+};
+
+static int pt_getregs(pid_t pid, struct pt_regs2 *regs) {
+    struct iovec iov = { regs, sizeof(*regs) };
+    return ptrace(PTRACE_GETREGSET, pid, (void *)NT_PRSTATUS, &iov);
+}
+
+static int pt_setregs(pid_t pid, struct pt_regs2 *regs) {
+    struct iovec iov = { regs, sizeof(*regs) };
+    return ptrace(PTRACE_SETREGSET, pid, (void *)NT_PRSTATUS, &iov);
+}
 
 /* ARM64 instruction builders */
 static uint32_t movz_x0(uint16_t imm16) {
@@ -38,10 +57,9 @@ static uint32_t movk_x8_32(uint16_t imm16) {
 }
 
 static int inject_so(pid_t pid, const char *path) {
-    struct user_pt_regs regs, backup;
+    struct pt_regs2 regs, backup;
     int status;
 
-    /* Attach */
     if (ptrace(PTRACE_ATTACH, pid, NULL, NULL) < 0) {
         perror("[-] PTRACE_ATTACH");
         return -1;
@@ -54,30 +72,29 @@ static int inject_so(pid_t pid, const char *path) {
     }
     printf("[+] Attached to PID %d\n", pid);
 
-    /* Save registers */
-    if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) < 0) {
-        perror("[-] PTRACE_GETREGS");
+    if (pt_getregs(pid, &regs) < 0) {
+        perror("[-] PTRACE_GETREGSET");
         ptrace(PTRACE_DETACH, pid, NULL, NULL);
         return -1;
     }
     backup = regs;
 
-    /* Write BRK instruction at current PC */
+    /* Write BRK at current PC */
     unsigned long orig_pc = regs.pc;
     long orig_text = ptrace(PTRACE_PEEKDATA, pid, orig_pc, NULL);
     long brk_text = (orig_text & ~0xFFFFFFFF) | 0xD4200000;
     ptrace(PTRACE_POKEDATA, pid, orig_pc, brk_text);
 
-    /* mmap in target: mmap(NULL, 0x2000, PROT_READ|WRITE|EXEC, MAP_PRIVATE|ANONYMOUS, -1, 0) */
+    /* mmap in target: mmap(NULL, 0x2000, 7, 0x22, -1, 0) */
     regs.pc = orig_pc;
-    regs.regs[8] = 222;       /* __NR_mmap */
-    regs.regs[0] = 0;         /* addr */
-    regs.regs[1] = 0x2000;    /* size */
-    regs.regs[2] = 7;         /* PROT_READ|WRITE|EXEC */
-    regs.regs[3] = 0x22;      /* MAP_PRIVATE|ANONYMOUS */
-    regs.regs[4] = (unsigned long)-1;
+    regs.regs[8] = 222;    /* __NR_mmap */
+    regs.regs[0] = 0;
+    regs.regs[1] = 0x2000;
+    regs.regs[2] = 7;      /* PROT_READ|WRITE|EXEC */
+    regs.regs[3] = 0x22;   /* MAP_PRIVATE|ANONYMOUS */
+    regs.regs[4] = (uint64_t)-1;
     regs.regs[5] = 0;
-    ptrace(PTRACE_SETREGS, pid, NULL, &regs);
+    pt_setregs(pid, &regs);
     ptrace(PTRACE_CONT, pid, NULL, NULL);
     waitpid(pid, &status, 0);
     if (!WIFSTOPPED(status)) {
@@ -85,21 +102,21 @@ static int inject_so(pid_t pid, const char *path) {
         goto fail;
     }
 
-    ptrace(PTRACE_GETREGS, pid, NULL, &regs);
+    pt_getregs(pid, &regs);
     unsigned long mmap_ret = regs.regs[0];
     printf("[+] mmap in target: 0x%lx\n", mmap_ret);
 
-    /* Restore PC and original instruction */
+    /* Restore PC */
     ptrace(PTRACE_POKEDATA, pid, orig_pc, orig_text);
     regs.pc = orig_pc;
-    ptrace(PTRACE_SETREGS, pid, NULL, &regs);
+    pt_setregs(pid, &regs);
 
     if (mmap_ret < 0x1000 || mmap_ret > 0x7FFFFFFFF000ULL) {
-        fprintf(stderr, "[-] mmap returned invalid: 0x%lx\n", mmap_ret);
+        fprintf(stderr, "[-] mmap invalid: 0x%lx\n", mmap_ret);
         goto fail;
     }
 
-    /* Write path string at mmap_ret */
+    /* Write path string */
     size_t path_len = strlen(path) + 1;
     for (size_t i = 0; i < path_len; i += 8) {
         char buf[8] = {0};
@@ -132,7 +149,7 @@ static int inject_so(pid_t pid, const char *path) {
     }
     printf("[+] Target libc base: 0x%lx\n", libc_base);
 
-    /* Calculate dlopen offset from local libc */
+    /* Calculate dlopen offset */
     void *local_sym = dlsym(RTLD_DEFAULT, "dlopen");
     Dl_info info;
     if (!local_sym || !dladdr(local_sym, &info)) {
@@ -143,14 +160,14 @@ static int inject_so(pid_t pid, const char *path) {
     unsigned long dlopen_addr = libc_base + dlopen_offset;
     printf("[+] dlopen in target: 0x%lx\n", dlopen_addr);
 
-    /* Write shellcode at mmap_ret + 0x1000 */
+    /* Write shellcode */
     unsigned long sc_addr = mmap_ret + 0x1000;
     uint32_t sc[12];
     int n = 0;
     sc[n++] = movz_x0((uint16_t)(mmap_ret & 0xFFFF));
     sc[n++] = movk_x0_16((uint16_t)((mmap_ret >> 16) & 0xFFFF));
     sc[n++] = movk_x0_32((uint16_t)((mmap_ret >> 32) & 0xFFFF));
-    sc[n++] = 0xD2800041;  /* movz x1, #2 (RTLD_NOW) */
+    sc[n++] = 0xD2800041;  /* movz x1, #2 */
     sc[n++] = movz_x8((uint16_t)(dlopen_addr & 0xFFFF));
     sc[n++] = movk_x8_16((uint16_t)((dlopen_addr >> 16) & 0xFFFF));
     sc[n++] = movk_x8_32((uint16_t)((dlopen_addr >> 32) & 0xFFFF));
@@ -167,12 +184,12 @@ static int inject_so(pid_t pid, const char *path) {
     regs.regs[0] = mmap_ret;
     regs.regs[1] = 2;
     regs.regs[8] = dlopen_addr;
-    ptrace(PTRACE_SETREGS, pid, NULL, &regs);
+    pt_setregs(pid, &regs);
     ptrace(PTRACE_CONT, pid, NULL, NULL);
     waitpid(pid, &status, 0);
 
     if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
-        ptrace(PTRACE_GETREGS, pid, NULL, &regs);
+        pt_getregs(pid, &regs);
         unsigned long ret = regs.regs[0];
         printf("[+] dlopen returned: 0x%lx\n", ret);
         if (ret != 0) {
@@ -184,13 +201,13 @@ static int inject_so(pid_t pid, const char *path) {
         fprintf(stderr, "[-] Unexpected signal: %d\n", WSTOPSIG(status));
     }
 
-    ptrace(PTRACE_SETREGS, pid, NULL, &backup);
+    pt_setregs(pid, &backup);
     ptrace(PTRACE_DETACH, pid, NULL, NULL);
     printf("[+] Detached from PID %d\n", pid);
     return 0;
 
 fail:
-    ptrace(PTRACE_SETREGS, pid, NULL, &backup);
+    pt_setregs(pid, &backup);
     ptrace(PTRACE_DETACH, pid, NULL, NULL);
     return -1;
 }
@@ -199,9 +216,9 @@ static void list_processes(void) {
     DIR *proc = opendir("/proc");
     if (!proc) return;
 
-    printf("\n╔═══════════╦══════════════════════════════════╗\n");
-    printf("║ PID       ║ Package                          ║\n");
-    printf("╠═══════════╬══════════════════════════════════╣\n");
+    printf("\n=== Panxcz Injector - Process List ===\n\n");
+    printf("%-8s  %-35s  %s\n", "PID", "PACKAGE", "CMDLINE");
+    printf("---------------------------------------------------------------\n");
 
     struct dirent *ent;
     while ((ent = readdir(proc)) != NULL) {
@@ -243,22 +260,23 @@ static void list_processes(void) {
         }
 
         if (pkg[0] || strstr(cmdline, "com.")) {
-            printf("║ %-9d ║ %-32s ║\n", pid, pkg[0] ? pkg : cmdline);
+            printf("%-8d  %-35s  %s\n", pid, pkg[0] ? pkg : "(native)", cmdline);
         }
     }
     closedir(proc);
-    printf("╚═══════════╩══════════════════════════════════╝\n\n");
+    printf("\n");
 }
 
 int main(int argc, char *argv[]) {
-    printf("\n  ╔════════════════════════════════════╗\n");
-    printf("  ║   Panxcz Injector v1.0             ║\n");
-    printf("  ║   By Panxcz & Freebuff             ║\n");
-    printf("  ╚════════════════════════════════════╝\n\n");
+    printf("\n  ====================================\n");
+    printf("    Panxcz Injector v1.0\n");
+    printf("    By Panxcz & Freebuff\n");
+    printf("  ====================================\n\n");
 
     if (argc == 1) {
         list_processes();
         printf("Usage: %s <pid> <path/to/library.so>\n", argv[0]);
+        printf("Example: %s 12345 /data/local/tmp/libTool.so\n", argv[0]);
         return 0;
     }
 
